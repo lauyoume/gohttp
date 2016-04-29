@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -41,19 +40,38 @@ type HttpAgent struct {
 	TlsConfig    *tls.Config
 	MaxTimeout   time.Duration
 	MaxRedirects int
+	Client       *http.Client
+	SingleClient bool
 	Errors       []error
 }
 
 // Used to create a new HttpAgent object.
 func New() *HttpAgent {
 	s := &HttpAgent{
-		TargetType: "json",
-		Data:       make(map[string]interface{}),
-		Header:     make(map[string]string),
-		FormData:   url.Values{},
-		QueryData:  url.Values{},
-		Cookies:    make([]*http.Cookie, 0),
-		Errors:     nil,
+		TargetType:   "json",
+		Data:         make(map[string]interface{}),
+		Header:       make(map[string]string),
+		FormData:     url.Values{},
+		QueryData:    url.Values{},
+		Cookies:      make([]*http.Cookie, 0),
+		MaxRedirects: -1,
+		Errors:       nil,
+	}
+	return s
+}
+
+func NewSingle() *HttpAgent {
+
+	s := &HttpAgent{
+		TargetType:   "json",
+		Data:         make(map[string]interface{}),
+		Header:       make(map[string]string),
+		FormData:     url.Values{},
+		QueryData:    url.Values{},
+		Cookies:      make([]*http.Cookie, 0),
+		MaxRedirects: -1,
+		SingleClient: true,
+		Errors:       nil,
 	}
 	return s
 }
@@ -145,6 +163,7 @@ var Types = map[string]string{
 	"urlencoded": "application/x-www-form-urlencoded",
 	"form":       "application/x-www-form-urlencoded",
 	"form-data":  "application/x-www-form-urlencoded",
+	"text":       "text/plain",
 }
 
 // Type is a convenience function to specify the data type to send.
@@ -380,6 +399,11 @@ func (s *HttpAgent) sendStruct(content interface{}) *HttpAgent {
 // Its duty is to transform String into s.Data (map[string]interface{}) which later changes into appropriate format such as json, form, text, etc. in the End func.
 // Send implicitly uses SendString and you should use Send instead of this.
 func (s *HttpAgent) SendString(content string) *HttpAgent {
+	if s.ForceType == "text" || s.ForceType == "xml" {
+		s.Data["text"] = content
+		//s.TargetType = s.ForceType
+		return s
+	}
 	var val map[string]interface{}
 	// check if it is json format
 	if err := json.Unmarshal([]byte(content), &val); err == nil {
@@ -449,28 +473,36 @@ func changeMapToURLValues(data map[string]interface{}) url.Values {
 //    }
 //    gorequest.New().Get("http://www..google.com").End(printBody)
 //
-func (s *HttpAgent) End(callback ...func(response Response, body string, errs []error)) (Response, string, []error) {
+func (s *HttpAgent) End(callback ...func(response Response, errs []error)) (Response, []error) {
 	var (
 		req            *http.Request
 		err            error
 		resp           Response
 		redirectFailed bool
+		client         *http.Client
 	)
 	// check whether there is an error. if yes, return all errors
 	if len(s.Errors) != 0 {
-		return nil, "", s.Errors
+		return nil, s.Errors
 	}
 
-	client, err := GetHttpClient(s.Url, s.ProxyUrl)
-	if err != nil {
-		s.Errors = append(s.Errors, err)
-		return nil, "", s.Errors
+	if s.Client != nil {
+		client = s.Client
+	} else {
+		client, err = GetHttpClient(s.Url, s.ProxyUrl)
+		if err != nil {
+			s.Errors = append(s.Errors, err)
+			return nil, s.Errors
+		}
+		if s.SingleClient {
+			s.Client = client
+		}
 	}
 	transport, _ := client.Transport.(*http.Transport)
 
 	// check if there is forced type
 	switch s.ForceType {
-	case "json", "form":
+	case "json", "form", "text", "xml":
 		s.TargetType = s.ForceType
 	}
 
@@ -485,22 +517,35 @@ func (s *HttpAgent) End(callback ...func(response Response, body string, errs []
 			formData := changeMapToURLValues(s.Data)
 			req, err = http.NewRequest(s.Method, s.Url, strings.NewReader(formData.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		} else if s.TargetType == "text" {
+			formdata := s.Data["text"].(string)
+			req, err = http.NewRequest(s.Method, s.Url, strings.NewReader(formdata))
+			req.Header.Set("Content-Type", "text/plain")
+		} else if s.TargetType == "xml" {
+			formdata := s.Data["text"].(string)
+			req, err = http.NewRequest(s.Method, s.Url, strings.NewReader(formdata))
+			req.Header.Set("Content-Type", "text/xml")
 		}
 	case GET, HEAD, DELETE:
 		req, err = http.NewRequest(s.Method, s.Url, nil)
 	}
 
+	if _, ok := s.Header["User-Agent"]; !ok {
+		s.Header["User-Agent"] = defaultOption.Agent
+	}
 	for k, v := range s.Header {
 		req.Header.Set(k, v)
 	}
 	// Add all querystring from Query func
-	q := req.URL.Query()
-	for k, v := range s.QueryData {
-		for _, vv := range v {
-			q.Add(k, vv)
+	if len(s.QueryData) > 0 {
+		q := req.URL.Query()
+		for k, v := range s.QueryData {
+			for _, vv := range v {
+				q.Add(k, vv)
+			}
 		}
+		req.URL.RawQuery = q.Encode()
 	}
-	req.URL.RawQuery = q.Encode()
 
 	// Add cookies
 	for _, cookie := range s.Cookies {
@@ -514,7 +559,10 @@ func (s *HttpAgent) End(callback ...func(response Response, body string, errs []
 		//client.Transport.TLSClientConfig = nil
 	}
 
-	if s.MaxRedirects > 0 {
+	if s.MaxRedirects == -1 {
+		s.MaxRedirects = defaultOption.MaxRedirects
+	}
+	if s.MaxRedirects >= 0 {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			if len(via) > s.MaxRedirects {
 				redirectFailed = true
@@ -523,41 +571,36 @@ func (s *HttpAgent) End(callback ...func(response Response, body string, errs []
 
 			//By default Golang will not redirect request headers
 			// https://code.google.com/p/go/issues/detail?id=4800&q=request%20header
-			//if r.RedirectHeaders {
-			//	for key, val := range via[0].Header {
-			//		req.Header[key] = val
-			//	}
-			//}
+			for key, val := range via[0].Header {
+				req.Header[key] = val
+			}
 			return nil
 		}
 	}
 
-	timeout := false
-	var timer *time.Timer
-	if s.MaxTimeout > 0 {
-		timer = time.AfterFunc(s.MaxTimeout, func() {
-			transport.CancelRequest(req)
-			timeout = true
-		})
-	}
+	//timeout := false
+	//var timer *time.Timer
+	//if s.MaxTimeout > 0 {
+	//	//timer = time.AfterFunc(s.MaxTimeout, func() {
+	//	//	transport.CancelRequest(req)
+	//	//	timeout = true
+	//	//})
+	//}
+	client.Timeout = s.MaxTimeout
 	// Send request
 	resp, err = client.Do(req)
-	if timer != nil {
-		timer.Stop()
-	}
+	//if timer != nil {
+	//	timer.Stop()
+	//}
 
 	if err != nil {
 		s.Errors = append(s.Errors, err)
-		return nil, "", s.Errors
+		return resp, s.Errors
 	}
-	defer resp.Body.Close()
-
-	body, _ := ioutil.ReadAll(resp.Body)
-	bodyString := string(body)
 	// deep copy response to give it to both return and callback func
 	respCallback := *resp
 	if len(callback) != 0 {
-		callback[0](&respCallback, bodyString, s.Errors)
+		callback[0](&respCallback, s.Errors)
 	}
-	return resp, bodyString, nil
+	return resp, nil
 }
