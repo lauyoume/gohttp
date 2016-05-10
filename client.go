@@ -211,3 +211,11 @@ func GetHttpClient(urlStr string, proxy string) (*http.Client, error) {
 
 	return client, nil
 }
+
+func GetDefaultDialer() *net.Dialer {
+	return defaultDialer
+}
+
+func GetDefaultTransport() *http.Transport {
+	return defaultTransport
+}

@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-type Request *http.Request
-type Response *http.Response
+//type Request *http.Request
+//type Response *http.Response
 
 // HTTP methods we support
 const (
@@ -473,11 +473,11 @@ func changeMapToURLValues(data map[string]interface{}) url.Values {
 //    }
 //    gorequest.New().Get("http://www..google.com").End(printBody)
 //
-func (s *HttpAgent) End(callback ...func(response Response, errs []error)) (Response, []error) {
+func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error)) (*http.Response, []error) {
 	var (
 		req            *http.Request
 		err            error
-		resp           Response
+		resp           *http.Response
 		redirectFailed bool
 		client         *http.Client
 	)
