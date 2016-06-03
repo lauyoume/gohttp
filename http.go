@@ -42,6 +42,7 @@ type HttpAgent struct {
 	MaxRedirects int
 	Client       *http.Client
 	SingleClient bool
+	Usejar       bool
 	Errors       []error
 }
 
@@ -56,6 +57,7 @@ func New() *HttpAgent {
 		Cookies:      make([]*http.Cookie, 0),
 		MaxRedirects: -1,
 		Errors:       nil,
+		Usejar:       true,
 	}
 	return s
 }
@@ -72,6 +74,7 @@ func NewSingle() *HttpAgent {
 		MaxRedirects: -1,
 		SingleClient: true,
 		Errors:       nil,
+		Usejar:       true,
 	}
 	return s
 }
@@ -451,6 +454,11 @@ func changeMapToURLValues(data map[string]interface{}) url.Values {
 	return newUrlValues
 }
 
+func (s *HttpAgent) Jar(use bool) *HttpAgent {
+	s.Usejar = use
+	return s
+}
+
 // End is the most important function that you need to call when ending the chain. The request won't proceed without calling it.
 // End function returns Response which matchs the structure of Response type in Golang's http package (but without Body data). The body data itself returns as a string in a 2nd return value.
 // Lastly but worht noticing, error array (NOTE: not just single error value) is returned as a 3rd value and nil otherwise.
@@ -489,7 +497,7 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 	if s.Client != nil {
 		client = s.Client
 	} else {
-		client, err = GetHttpClient(s.Url, s.ProxyUrl)
+		client, err = GetHttpClient(s.Url, s.ProxyUrl, s.Usejar)
 		if err != nil {
 			s.Errors = append(s.Errors, err)
 			return nil, s.Errors

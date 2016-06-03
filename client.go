@@ -20,6 +20,11 @@ type Option struct {
 	MaxRedirects   int
 }
 
+type clientResource struct {
+	Transport http.RoundTripper
+	Jar       http.CookieJar
+}
+
 type useInfo struct {
 	Index    int
 	LastTime time.Time
@@ -35,28 +40,32 @@ var defaultOption = &Option{
 //ip使用情况
 var useLock sync.RWMutex
 var useMap map[string]*useInfo = make(map[string]*useInfo)
-var clientMap map[string]*http.Client
+var clientMap map[string]*clientResource
 var clientLock sync.RWMutex
 
 var defaultDialer = &net.Dialer{Timeout: defaultOption.ConnectTimeout}
 var defaultTransport = &http.Transport{Dial: defaultDialer.Dial, Proxy: http.ProxyFromEnvironment}
-var defaultClient = makeClient(defaultTransport)
+var defaultCookiejar = MakeCookiejar()
 
-var proxyClient *http.Client
 var proxyTransport *http.Transport
 
 var hostDelay = make(map[string]time.Duration)
 var hostDelayLock sync.RWMutex
 
-func makeClient(transport *http.Transport) *http.Client {
+func MakeCookiejar() http.CookieJar {
 	cookiejarOptions := cookiejar.Options{
 		PublicSuffixList: publicsuffix.List,
 	}
 	jar, _ := cookiejar.New(&cookiejarOptions)
+
+	return jar
+}
+
+func MakeClient(transport http.RoundTripper, jar http.CookieJar) *http.Client {
 	return &http.Client{Jar: jar, Transport: transport, Timeout: 60 * time.Second}
 }
 
-func makeTransport(ip string) *http.Transport {
+func MakeTransport(ip string) *http.Transport {
 	addr, _ := net.ResolveTCPAddr("tcp", ip+":0")
 	dialer := &net.Dialer{
 		Timeout:   defaultOption.ConnectTimeout,
@@ -104,7 +113,7 @@ func SetOption(option *Option) {
 
 	if option.Address != nil && len(option.Address) > 0 {
 		defaultOption.Address = append(defaultOption.Address, option.Address...)
-		clientMap = make(map[string]*http.Client)
+		clientMap = make(map[string]*clientResource)
 	}
 
 	if option.MaxRedirects > 0 {
@@ -119,11 +128,11 @@ func ResetCookie(urlstr string) error {
 	}
 	clientLock.Lock()
 
-	cookies := defaultClient.Jar.Cookies(uri)
+	cookies := defaultCookiejar.Cookies(uri)
 	for _, c := range cookies {
 		c.Expires = time.Now().Add(-1 * time.Hour)
 	}
-	defaultClient.Jar.SetCookies(uri, cookies)
+	defaultCookiejar.SetCookies(uri, cookies)
 
 	for _, client := range clientMap {
 		cookies := client.Jar.Cookies(uri)
@@ -136,9 +145,9 @@ func ResetCookie(urlstr string) error {
 	return nil
 }
 
-func GetHttpClient(urlStr string, proxy string) (*http.Client, error) {
+func GetHttpClient(urlStr string, proxy string, usejar bool) (*http.Client, error) {
 
-	var client *http.Client
+	var clientres *clientResource
 	if proxy != "" {
 		proxyuri, err := url.Parse(proxy)
 		if err != nil {
@@ -146,11 +155,10 @@ func GetHttpClient(urlStr string, proxy string) (*http.Client, error) {
 		}
 		if proxyTransport == nil {
 			proxyTransport = &http.Transport{Dial: defaultDialer.Dial, Proxy: http.ProxyURL(proxyuri)}
-			proxyClient = makeClient(proxyTransport)
 		} else {
 			proxyTransport.Proxy = http.ProxyURL(proxyuri)
 		}
-		client = proxyClient
+		clientres = &clientResource{proxyTransport, defaultCookiejar}
 	} else {
 
 		uri, err := url.Parse(urlStr)
@@ -192,24 +200,27 @@ func GetHttpClient(urlStr string, proxy string) (*http.Client, error) {
 		}
 
 		if len(defaultOption.Address) == 0 {
-			client = defaultClient
+			clientres = &clientResource{defaultTransport, defaultCookiejar}
 		} else {
 			//
 			//加锁并发
 			ip := defaultOption.Address[use.Index]
 			clientLock.Lock()
 			if v, ok := clientMap[ip]; ok {
-				client = v
+				clientres = v
 			} else {
-				client = makeClient(makeTransport(ip))
-				clientMap[ip] = client
+				clientres = &clientResource{MakeTransport(ip), MakeCookiejar()}
+				clientMap[ip] = clientres
 			}
 			clientLock.Unlock()
 		}
 
 	}
 
-	return client, nil
+	if usejar {
+		return MakeClient(clientres.Transport, clientres.Jar), nil
+	}
+	return MakeClient(clientres.Transport, MakeCookiejar()), nil
 }
 
 func GetDefaultDialer() *net.Dialer {
