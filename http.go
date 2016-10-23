@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -443,6 +444,16 @@ func changeMapToURLValues(data map[string]interface{}) url.Values {
 	var newUrlValues = url.Values{}
 	for k, v := range data {
 		switch val := v.(type) {
+		case bool:
+			if val {
+				newUrlValues.Add(k, "1")
+			} else {
+				newUrlValues.Add(k, "0")
+			}
+		case int, int8, int16, int32, int64, float64, float32:
+			newUrlValues.Add(k, fmt.Sprintf("%v", val))
+		case uint, uint8, uint16, uint32, uint64:
+			newUrlValues.Add(k, fmt.Sprintf("%v", val))
 		case string:
 			newUrlValues.Add(k, val)
 		case []string:
@@ -451,6 +462,7 @@ func changeMapToURLValues(data map[string]interface{}) url.Values {
 			}
 		}
 	}
+
 	return newUrlValues
 }
 
@@ -541,6 +553,10 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 	if _, ok := s.Header["User-Agent"]; !ok {
 		s.Header["User-Agent"] = defaultOption.Agent
 	}
+	if host, ok := s.Header["Host"]; ok {
+		req.Host = host
+	}
+
 	for k, v := range s.Header {
 		req.Header.Set(k, v)
 	}
@@ -562,7 +578,7 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 
 	if s.TlsConfig != nil {
 		transport.TLSClientConfig = s.TlsConfig
-	} else if transport.TLSClientConfig != nil {
+	} else if transport != nil && transport.TLSClientConfig != nil {
 		transport.TLSClientConfig.InsecureSkipVerify = false
 		//client.Transport.TLSClientConfig = nil
 	}

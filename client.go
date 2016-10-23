@@ -18,6 +18,7 @@ type Option struct {
 	Agent          string
 	Delay          time.Duration
 	MaxRedirects   int
+	MaxIdleConns   int
 }
 
 type clientResource struct {
@@ -35,6 +36,7 @@ var defaultOption = &Option{
 	Agent:          "gohttp v1.0",
 	Address:        make([]string, 0),
 	MaxRedirects:   -1,
+	MaxIdleConns:   0,
 }
 
 //ip使用情况
@@ -72,8 +74,9 @@ func MakeTransport(ip string) *http.Transport {
 		LocalAddr: addr,
 	}
 	return &http.Transport{
-		Dial:  dialer.Dial,
-		Proxy: http.ProxyFromEnvironment,
+		Dial:                dialer.Dial,
+		Proxy:               http.ProxyFromEnvironment,
+		MaxIdleConnsPerHost: defaultOption.MaxIdleConns,
 	}
 }
 
@@ -118,6 +121,11 @@ func SetOption(option *Option) {
 
 	if option.MaxRedirects > 0 {
 		defaultOption.MaxRedirects = option.MaxRedirects
+	}
+
+	if option.MaxIdleConns > 0 {
+		defaultOption.MaxIdleConns = option.MaxIdleConns
+		defaultTransport.MaxIdleConnsPerHost = option.MaxIdleConns
 	}
 }
 
@@ -229,4 +237,8 @@ func GetDefaultDialer() *net.Dialer {
 
 func GetDefaultTransport() *http.Transport {
 	return defaultTransport
+}
+
+func GetDefaultClient() *http.Client {
+	return MakeClient(defaultTransport, defaultCookiejar)
 }
