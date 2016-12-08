@@ -145,7 +145,7 @@ func (s *HttpAgent) Patch(targetUrl string) *HttpAgent {
 // Set is used for setting header fields.
 // Example. To set `Accept` as `application/json`
 //
-//    gorequest.New().
+//    gohttp.New().
 //      Post("/gamelist").
 //      Set("Accept", "application/json").
 //      End()
@@ -173,7 +173,7 @@ var Types = map[string]string{
 // Type is a convenience function to specify the data type to send.
 // For example, to send data as `application/x-www-form-urlencoded` :
 //
-//    gorequest.New().
+//    gohttp.New().
 //      Post("/recipe").
 //      Type("form").
 //      Send(`{ name: "egg benedict", category: "brunch" }`).
@@ -181,7 +181,7 @@ var Types = map[string]string{
 //
 // This will POST the body "name=egg benedict&category=brunch" to url /recipe
 //
-// GoRequest supports
+// gohttp supports
 //
 //    "text/html" uses "html"
 //    "application/json" uses "json"
@@ -200,7 +200,7 @@ func (s *HttpAgent) Type(typeStr string) *HttpAgent {
 // Query function accepts either json string or strings which will form a query-string in url of GET method or body of POST method.
 // For example, making "/search?query=bicycle&size=50x50&weight=20kg" using GET method:
 //
-//      gorequest.New().
+//      gohttp.New().
 //        Get("/search").
 //        Query(`{ query: 'bicycle' }`).
 //        Query(`{ size: '50x50' }`).
@@ -209,14 +209,14 @@ func (s *HttpAgent) Type(typeStr string) *HttpAgent {
 //
 // Or you can put multiple json values:
 //
-//      gorequest.New().
+//      gohttp.New().
 //        Get("/search").
 //        Query(`{ query: 'bicycle', size: '50x50', weight: '20kg' }`).
 //        End()
 //
 // Strings are also acceptable:
 //
-//      gorequest.New().
+//      gohttp.New().
 //        Get("/search").
 //        Query("query=bicycle&size=50x50").
 //        Query("weight=20kg").
@@ -224,7 +224,7 @@ func (s *HttpAgent) Type(typeStr string) *HttpAgent {
 //
 // Or even Mixed! :)
 //
-//      gorequest.New().
+//      gohttp.New().
 //        Get("/search").
 //        Query("query=bicycle").
 //        Query(`{ size: '50x50', weight:'20kg' }`).
@@ -234,7 +234,7 @@ func (s *HttpAgent) Query(content interface{}) *HttpAgent {
 	switch v := reflect.ValueOf(content); v.Kind() {
 	case reflect.String:
 		s.queryString(v.String())
-	case reflect.Struct:
+	case reflect.Struct, reflect.Map:
 		s.queryStruct(v.Interface())
 	default:
 	}
@@ -249,9 +249,11 @@ func (s *HttpAgent) queryStruct(content interface{}) *HttpAgent {
 		if err := json.Unmarshal(marshalContent, &val); err != nil {
 			s.Errors = append(s.Errors, err)
 		} else {
-			for k, v := range val {
-				k = strings.ToLower(k)
-				s.QueryData.Add(k, v.(string))
+			newdata := changeMapToURLValues(val)
+			for k, v := range newdata {
+				for _, v1 := range v {
+					s.QueryData.Add(k, v1)
+				}
 			}
 		}
 	}
@@ -285,7 +287,7 @@ func (s *HttpAgent) Timeout(timeout time.Duration) *HttpAgent {
 // Set TLSClientConfig for underling Transport.
 // One example is you can use it to disable security check (https):
 //
-// 			gorequest.New().TLSClientConfig(&tls.Config{ InsecureSkipVerify: true}).
+// 			gohttp.New().TLSClientConfig(&tls.Config{ InsecureSkipVerify: true}).
 // 				Get("https://disable-security-check.com").
 // 				End()
 //
@@ -298,15 +300,15 @@ func (s *HttpAgent) TLSClientConfig(config *tls.Config) *HttpAgent {
 // It provides a convenience way to setup proxy which have advantages over usual old ways.
 // One example is you might try to set `http_proxy` environment. This means you are setting proxy up for all the requests.
 // You will not be able to send different request with different proxy unless you change your `http_proxy` environment again.
-// Another example is using Golang proxy setting. This is normal prefer way to do but too verbase compared to GoRequest's Proxy:
+// Another example is using Golang proxy setting. This is normal prefer way to do but too verbase compared to gohttp's Proxy:
 //
-//      gorequest.New().Proxy("http://myproxy:9999").
+//      gohttp.New().Proxy("http://myproxy:9999").
 //        Post("http://www.google.com").
 //        End()
 //
 // To set no_proxy, just put empty string to Proxy func:
 //
-//      gorequest.New().Proxy("").
+//      gohttp.New().Proxy("").
 //        Post("http://www.google.com").
 //        End()
 //
@@ -334,14 +336,14 @@ func (s *HttpAgent) MaxRedirect(redirect int) *HttpAgent {
 // Send function accepts either json string or query strings which is usually used to assign data to POST or PUT method.
 // Without specifying any type, if you give Send with json data, you are doing requesting in json format:
 //
-//      gorequest.New().
+//      gohttp.New().
 //        Post("/search").
 //        Send(`{ query: 'sushi' }`).
 //        End()
 //
-// While if you use at least one of querystring, GoRequest understands and automatically set the Content-Type to `application/x-www-form-urlencoded`
+// While if you use at least one of querystring, gohttp understands and automatically set the Content-Type to `application/x-www-form-urlencoded`
 //
-//      gorequest.New().
+//      gohttp.New().
 //        Post("/search").
 //        Send("query=tonkatsu").
 //        End()
@@ -349,7 +351,7 @@ func (s *HttpAgent) MaxRedirect(redirect int) *HttpAgent {
 // So, if you want to strictly send json format, you need to use Type func to set it as `json` (Please see more details in Type function).
 // You can also do multiple chain of Send:
 //
-//      gorequest.New().
+//      gohttp.New().
 //        Post("/search").
 //        Send("query=bicycle&size=50x50").
 //        Send(`{ wheel: '4'}`).
@@ -362,7 +364,7 @@ func (s *HttpAgent) MaxRedirect(redirect int) *HttpAgent {
 //        Firefox string
 //      }
 //      ver := BrowserVersionSupport{ Chrome: "37.0.2041.6", Firefox: "30.0" }
-//      gorequest.New().
+//      gohttp.New().
 //        Post("/update_version").
 //        Send(ver).
 //        Send(`{"Safari":"5.1.10"}`).
@@ -373,7 +375,7 @@ func (s *HttpAgent) Send(content interface{}) *HttpAgent {
 	switch v := reflect.ValueOf(content); v.Kind() {
 	case reflect.String:
 		s.SendString(v.String())
-	case reflect.Struct:
+	case reflect.Struct, reflect.Map:
 		s.sendStruct(v.Interface())
 	default:
 		// TODO: leave default for handling other types in the future such as number, byte, etc...
@@ -477,21 +479,21 @@ func (s *HttpAgent) Jar(use bool) *HttpAgent {
 //
 // For example:
 //
-//    resp, body, errs := gorequest.New().Get("http://www.google.com").End()
+//    resp, body, errs := gohttp.New().Get("http://www.google.com").End()
 //    if( errs != nil){
 //      fmt.Println(errs)
 //    }
 //    fmt.Println(resp, body)
 //
 // Moreover, End function also supports callback which you can put as a parameter.
-// This extends the flexibility and makes GoRequest fun and clean! You can use GoRequest in whatever style you love!
+// This extends the flexibility and makes gohttp fun and clean! You can use gohttp in whatever style you love!
 //
 // For example:
 //
-//    func printBody(resp gorequest.Response, body string, errs []error){
+//    func printBody(resp gohttp.Response, body string, errs []error){
 //      fmt.Println(resp.Status)
 //    }
-//    gorequest.New().Get("http://www..google.com").End(printBody)
+//    gohttp.New().Get("http://www..google.com").End(printBody)
 //
 func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error)) (*http.Response, []error) {
 	var (
