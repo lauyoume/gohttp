@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -168,6 +169,7 @@ var Types = map[string]string{
 	"form":       "application/x-www-form-urlencoded",
 	"form-data":  "application/x-www-form-urlencoded",
 	"text":       "text/plain",
+	"multipart":  "multipart/form-data",
 }
 
 // Type is a convenience function to specify the data type to send.
@@ -276,6 +278,14 @@ func (s *HttpAgent) queryString(content string) *HttpAgent {
 		}
 		// TODO: need to check correct format of 'field=val&field=val&...'
 	}
+	return s
+}
+
+// As Go conventions accepts ; as a synonym for &. (https://github.com/golang/go/issues/2210)
+// Thus, Query won't accept ; in a querystring if we provide something like fields=f1;f2;f3
+// This Param is then created as an alternative method to solve this.
+func (s *HttpAgent) Param(key string, value string) *HttpAgent {
+	s.QueryData.Add(key, value)
 	return s
 }
 
@@ -452,6 +462,8 @@ func changeMapToURLValues(data map[string]interface{}) url.Values {
 			} else {
 				newUrlValues.Add(k, "0")
 			}
+		case json.Number:
+			newUrlValues.Add(k, string(val))
 		case int, int8, int16, int32, int64, float64, float32:
 			newUrlValues.Add(k, fmt.Sprintf("%v", val))
 		case uint, uint8, uint16, uint32, uint64:
@@ -524,7 +536,7 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 
 	// check if there is forced type
 	switch s.ForceType {
-	case "json", "form", "text", "xml":
+	case "json", "form", "text", "xml", "multipart":
 		s.TargetType = s.ForceType
 	}
 
@@ -547,6 +559,25 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 			formdata := s.Data["text"].(string)
 			req, err = http.NewRequest(s.Method, s.Url, strings.NewReader(formdata))
 			req.Header.Set("Content-Type", "text/xml")
+		} else if s.TargetType == "multipart" {
+			var buf bytes.Buffer
+			mw := multipart.NewWriter(&buf)
+
+			if len(s.Data) != 0 {
+				formData := changeMapToURLValues(s.Data)
+				for key, values := range formData {
+					for _, value := range values {
+						fw, _ := mw.CreateFormField(key)
+						fw.Write([]byte(value))
+					}
+				}
+			}
+
+			// close before call to FormDataContentType ! otherwise its not valid multipart
+			mw.Close()
+
+			req, err = http.NewRequest(s.Method, s.Url, &buf)
+			req.Header.Set("Content-Type", mw.FormDataContentType())
 		}
 	case GET, HEAD, DELETE:
 		req, err = http.NewRequest(s.Method, s.Url, nil)
@@ -555,6 +586,7 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 	if _, ok := s.Header["User-Agent"]; !ok {
 		s.Header["User-Agent"] = defaultOption.Agent
 	}
+
 	if host, ok := s.Header["Host"]; ok {
 		req.Host = host
 	}
