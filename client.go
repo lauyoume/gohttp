@@ -73,11 +73,17 @@ func MakeTransport(ip string) *http.Transport {
 		Timeout:   defaultOption.ConnectTimeout,
 		LocalAddr: addr,
 	}
-	return &http.Transport{
+	transport := &http.Transport{
 		Dial:                dialer.Dial,
 		Proxy:               http.ProxyFromEnvironment,
 		MaxIdleConnsPerHost: defaultOption.MaxIdleConns,
 	}
+
+	if defaultOption.MaxIdleConns <= 0 {
+		transport.DisableKeepAlives = true
+	}
+
+	return transport
 }
 
 func SetHostDelay(host string, delay time.Duration) {
