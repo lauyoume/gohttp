@@ -14,6 +14,7 @@ import (
 type Option struct {
 	Address        []string
 	ConnectTimeout time.Duration
+	TLSTimeout     time.Duration
 	Timeout        time.Duration
 	Agent          string
 	Delay          time.Duration
@@ -33,6 +34,7 @@ type useInfo struct {
 
 var defaultOption = &Option{
 	ConnectTimeout: 30000 * time.Millisecond,
+	TLSTimeout:     15 * time.Second,
 	Agent:          "gohttp v1.0",
 	Address:        make([]string, 0),
 	MaxRedirects:   -1,
@@ -46,7 +48,7 @@ var clientMap map[string]*clientResource
 var clientLock sync.RWMutex
 
 var defaultDialer = &net.Dialer{Timeout: defaultOption.ConnectTimeout}
-var defaultTransport = &http.Transport{Dial: defaultDialer.Dial, Proxy: http.ProxyFromEnvironment}
+var defaultTransport = MakeTransport("0.0.0.0")
 var defaultCookiejar = MakeCookiejar()
 
 var proxyTransport *http.Transport
@@ -77,6 +79,7 @@ func MakeTransport(ip string) *http.Transport {
 		Dial:                dialer.Dial,
 		Proxy:               http.ProxyFromEnvironment,
 		MaxIdleConnsPerHost: defaultOption.MaxIdleConns,
+		TLSHandshakeTimeout: defaultOption.TLSTimeout,
 	}
 
 	if defaultOption.MaxIdleConns <= 0 {
@@ -114,6 +117,10 @@ func SetOption(option *Option) {
 
 	if option.ConnectTimeout > 0 {
 		defaultOption.ConnectTimeout = option.ConnectTimeout
+	}
+
+	if option.TLSTimeout > 0 {
+		defaultOption.TLSTimeout = option.TLSTimeout
 	}
 
 	if option.Delay > 0 {
@@ -168,7 +175,12 @@ func GetHttpClient(urlStr string, proxy string, usejar bool) (*http.Client, erro
 			return nil, err
 		}
 		if proxyTransport == nil {
-			proxyTransport = &http.Transport{Dial: defaultDialer.Dial, Proxy: http.ProxyURL(proxyuri)}
+			proxyTransport = &http.Transport{
+				Dial:                defaultDialer.Dial,
+				Proxy:               http.ProxyURL(proxyuri),
+				MaxIdleConnsPerHost: defaultOption.MaxIdleConns,
+				TLSHandshakeTimeout: defaultOption.TLSTimeout,
+			}
 		} else {
 			proxyTransport.Proxy = http.ProxyURL(proxyuri)
 		}
