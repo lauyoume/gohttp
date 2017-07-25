@@ -46,6 +46,7 @@ type HttpAgent struct {
 	SingleClient bool
 	Usejar       bool
 	Errors       []error
+	DataAll      interface{}
 }
 
 // Used to create a new HttpAgent object.
@@ -93,6 +94,7 @@ func (s *HttpAgent) ClearAgent() {
 	s.TargetType = "json"
 	s.Cookies = make([]*http.Cookie, 0)
 	s.Errors = nil
+	s.DataAll = nil
 }
 
 func (s *HttpAgent) Get(targetUrl string) *HttpAgent {
@@ -385,10 +387,26 @@ func (s *HttpAgent) Send(content interface{}) *HttpAgent {
 	switch v := reflect.ValueOf(content); v.Kind() {
 	case reflect.String:
 		s.SendString(v.String())
+	case reflect.Array, reflect.Slice:
+		s.sendArray(v.Interface())
 	case reflect.Struct, reflect.Map:
 		s.sendStruct(v.Interface())
 	default:
 		// TODO: leave default for handling other types in the future such as number, byte, etc...
+	}
+	return s
+}
+
+func (s *HttpAgent) sendArray(content interface{}) *HttpAgent {
+	if marshalContent, err := json.Marshal(content); err != nil {
+		s.Errors = append(s.Errors, err)
+	} else {
+		var val []interface{}
+		if err := json.Unmarshal(marshalContent, &val); err != nil {
+			s.Errors = append(s.Errors, err)
+		} else {
+			s.DataAll = val
+		}
 	}
 	return s
 }
@@ -421,11 +439,14 @@ func (s *HttpAgent) SendString(content string) *HttpAgent {
 		return s
 	}
 	var val map[string]interface{}
+	var valslice []interface{}
 	// check if it is json format
 	if err := json.Unmarshal([]byte(content), &val); err == nil {
 		for k, v := range val {
 			s.Data[k] = v
 		}
+	} else if err := json.Unmarshal([]byte(content), &valslice); err == nil {
+		s.DataAll = valslice
 	} else if formVal, err := url.ParseQuery(content); err == nil {
 		for k, _ := range formVal {
 			// make it array if already have key
@@ -543,7 +564,12 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 	switch s.Method {
 	case POST, PUT, PATCH:
 		if s.TargetType == "json" {
-			contentJson, _ := json.Marshal(s.Data)
+			var contentJson []byte
+			if s.DataAll != nil {
+				contentJson, _ = json.Marshal(s.DataAll)
+			} else {
+				contentJson, _ = json.Marshal(s.Data)
+			}
 			contentReader := bytes.NewReader(contentJson)
 			req, err = http.NewRequest(s.Method, s.Url, contentReader)
 			req.Header.Set("Content-Type", "application/json; charset=UTF-8")
