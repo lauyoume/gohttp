@@ -495,6 +495,9 @@ func changeMapToURLValues(data map[string]interface{}) url.Values {
 			for _, element := range val {
 				newUrlValues.Add(k, element)
 			}
+		default:
+			body, _ := json.Marshal(val)
+			newUrlValues.Add(k, string(body))
 		}
 	}
 
