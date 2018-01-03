@@ -41,20 +41,16 @@ var defaultOption = &Option{
 	MaxIdleConns:   0,
 }
 
-//ip使用情况
-var useLock sync.RWMutex
-var useMap map[string]*useInfo = make(map[string]*useInfo)
-var clientMap map[string]*clientResource
-var clientLock sync.RWMutex
-
+var debug = false
 var defaultDialer = &net.Dialer{Timeout: defaultOption.ConnectTimeout}
 var defaultTransport = MakeTransport("0.0.0.0")
 var defaultCookiejar = MakeCookiejar()
-
 var proxyTransport *http.Transport
 
 var hostDelay = make(map[string]time.Duration)
 var hostDelayLock sync.RWMutex
+
+var defaultGetter = NewIpRollClient(defaultOption.Address...)
 
 func MakeCookiejar() http.CookieJar {
 	cookiejarOptions := cookiejar.Options{
@@ -87,6 +83,19 @@ func MakeTransport(ip string) *http.Transport {
 	}
 
 	return transport
+}
+
+func SetDebug(d bool) {
+	defer hostDelayLock.Unlock()
+	hostDelayLock.Lock()
+
+	debug = d
+}
+
+func IsDebug() bool {
+	defer hostDelayLock.RUnlock()
+	hostDelayLock.RLock()
+	return debug
 }
 
 func SetHostDelay(host string, delay time.Duration) {
@@ -128,8 +137,9 @@ func SetOption(option *Option) {
 	}
 
 	if option.Address != nil && len(option.Address) > 0 {
+		defaultOption.Address = make([]string, 0)
 		defaultOption.Address = append(defaultOption.Address, option.Address...)
-		clientMap = make(map[string]*clientResource)
+		defaultGetter = NewIpRollClient(defaultOption.Address...)
 	}
 
 	if option.MaxRedirects > 0 {
@@ -147,106 +157,15 @@ func ResetCookie(urlstr string) error {
 	if err != nil {
 		return err
 	}
-	clientLock.Lock()
-
 	cookies := defaultCookiejar.Cookies(uri)
 	for _, c := range cookies {
 		c.Expires = time.Now().Add(-1 * time.Hour)
 	}
 	defaultCookiejar.SetCookies(uri, cookies)
 
-	for _, client := range clientMap {
-		cookies := client.Jar.Cookies(uri)
-		for _, c := range cookies {
-			c.Expires = time.Now().Add(-1 * time.Hour)
-		}
-		client.Jar.SetCookies(uri, cookies)
-	}
-	clientLock.Unlock()
+	defaultGetter.ResetCookie(uri)
+
 	return nil
-}
-
-func GetHttpClient(urlStr string, proxy string, usejar bool) (*http.Client, error) {
-
-	var clientres *clientResource
-	if proxy != "" {
-		proxyuri, err := url.Parse(proxy)
-		if err != nil {
-			return nil, err
-		}
-		if proxyTransport == nil {
-			proxyTransport = &http.Transport{
-				Dial:                defaultDialer.Dial,
-				Proxy:               http.ProxyURL(proxyuri),
-				MaxIdleConnsPerHost: defaultOption.MaxIdleConns,
-				TLSHandshakeTimeout: defaultOption.TLSTimeout,
-			}
-		} else {
-			proxyTransport.Proxy = http.ProxyURL(proxyuri)
-		}
-		clientres = &clientResource{proxyTransport, defaultCookiejar}
-	} else {
-
-		uri, err := url.Parse(urlStr)
-		if err != nil {
-			return nil, err
-		}
-		delay := time.Duration(0)
-
-		//并发取的时候锁定
-		useLock.Lock()
-		use, ok := useMap[uri.Host]
-		need_delay := GetHostDelay(uri.Host)
-		if ok {
-			//need_delay
-			lastIndex := use.Index
-			if len(defaultOption.Address) != 0 {
-				use.Index = (use.Index + 1) % len(defaultOption.Address)
-			}
-
-			//使用同一个IP，则需要延迟
-			if lastIndex == use.Index && need_delay > 0 {
-				sub := time.Now().Sub(use.LastTime)
-				if sub < need_delay {
-					delay = need_delay - sub
-				}
-			}
-			use.LastTime = time.Now().Add(delay)
-		} else {
-			use = &useInfo{
-				Index:    0,
-				LastTime: time.Now(),
-			}
-		}
-		useMap[uri.Host] = use
-		useLock.Unlock()
-
-		if delay > 0 {
-			time.Sleep(delay)
-		}
-
-		if len(defaultOption.Address) == 0 {
-			clientres = &clientResource{defaultTransport, defaultCookiejar}
-		} else {
-			//
-			//加锁并发
-			ip := defaultOption.Address[use.Index]
-			clientLock.Lock()
-			if v, ok := clientMap[ip]; ok {
-				clientres = v
-			} else {
-				clientres = &clientResource{MakeTransport(ip), MakeCookiejar()}
-				clientMap[ip] = clientres
-			}
-			clientLock.Unlock()
-		}
-
-	}
-
-	if usejar {
-		return MakeClient(clientres.Transport, clientres.Jar), nil
-	}
-	return MakeClient(clientres.Transport, MakeCookiejar()), nil
 }
 
 func GetDefaultDialer() *net.Dialer {
@@ -259,4 +178,8 @@ func GetDefaultTransport() *http.Transport {
 
 func GetDefaultClient() *http.Client {
 	return MakeClient(defaultTransport, defaultCookiejar)
+}
+
+func GetDefaultGetter() ClientGetter {
+	return defaultGetter
 }

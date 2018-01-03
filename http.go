@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -47,6 +50,7 @@ type HttpAgent struct {
 	Usejar       bool
 	Errors       []error
 	DataAll      interface{}
+	Getter       ClientGetter
 }
 
 // Used to create a new HttpAgent object.
@@ -547,7 +551,12 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 	if s.Client != nil {
 		client = s.Client
 	} else {
-		client, err = GetHttpClient(s.Url, s.ProxyUrl, s.Usejar)
+		getter := GetDefaultGetter()
+		if s.Getter != nil {
+			getter = s.Getter
+		}
+
+		client, err = getter.GetHttpClient(s.Url, s.ProxyUrl, s.Usejar)
 		if err != nil {
 			s.Errors = append(s.Errors, err)
 			return nil, s.Errors
@@ -690,4 +699,60 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 		callback[0](&respCallback, s.Errors)
 	}
 	return resp, nil
+}
+
+func (s *HttpAgent) Bytes(status ...int) ([]byte, int, error) {
+	if s.Url == "" || s.Method == "" {
+		return nil, http.StatusBadRequest, errors.New("req error, need set url and method")
+	}
+
+	resp, errs := s.End()
+	if errs != nil {
+		return nil, http.StatusBadRequest, errs[0]
+	}
+	defer resp.Body.Close()
+	if status != nil {
+		found := false
+		for _, val := range status {
+			if resp.StatusCode == val {
+				found = true
+				break
+			}
+		}
+		if !found {
+			io.Copy(ioutil.Discard, resp.Body)
+			return nil, resp.StatusCode, errors.New(fmt.Sprintf("status not match we want!, statuscode = %d", resp.StatusCode))
+		}
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	return body, resp.StatusCode, err
+}
+
+func (s *HttpAgent) String(status ...int) (string, int, error) {
+	body, code, err := s.Bytes(status...)
+	if err != nil {
+		return "", code, err
+	}
+
+	return string(body), code, err
+}
+
+func (s *HttpAgent) ToJSON(v interface{}, status ...int) (int, error) {
+	body, code, err := s.Bytes(status...)
+	if err != nil {
+		return code, err
+	}
+
+	err = json.Unmarshal(body, &v)
+	return code, err
+}
+
+func (s *HttpAgent) ToXML(v interface{}, status ...int) (int, error) {
+	body, code, err := s.Bytes(status...)
+	if err != nil {
+		return code, err
+	}
+
+	err = xml.Unmarshal(body, &v)
+	return code, err
 }
