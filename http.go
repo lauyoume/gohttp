@@ -2,6 +2,7 @@ package gohttp
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/tls"
 	"encoding/json"
 	"encoding/xml"
@@ -723,6 +724,15 @@ func (s *HttpAgent) Bytes(status ...int) ([]byte, int, error) {
 			io.Copy(ioutil.Discard, resp.Body)
 			return nil, resp.StatusCode, errors.New(fmt.Sprintf("status not match we want!, statuscode = %d", resp.StatusCode))
 		}
+	}
+
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		reader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, resp.StatusCode, err
+		}
+		body, err := ioutil.ReadAll(reader)
+		return body, resp.StatusCode, err
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	return body, resp.StatusCode, err
