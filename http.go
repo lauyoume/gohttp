@@ -496,9 +496,14 @@ func changeMapToURLValues(data map[string]interface{}) url.Values {
 			newUrlValues.Add(k, fmt.Sprintf("%v", val))
 		case string:
 			newUrlValues.Add(k, val)
+		case []int, []int64, []float64, []interface{}:
+			v := reflect.ValueOf(val)
+			for i := 0; i < v.Len(); i++ {
+				newUrlValues.Add(fmt.Sprintf("%s[]", k), fmt.Sprintf("%v", v.Index(i).Interface()))
+			}
 		case []string:
 			for _, element := range val {
-				newUrlValues.Add(k, element)
+				newUrlValues.Add(fmt.Sprintf("%s[]", k), element)
 			}
 		default:
 			body, _ := json.Marshal(val)
