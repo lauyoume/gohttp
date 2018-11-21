@@ -543,11 +543,10 @@ func (s *HttpAgent) Jar(use bool) *HttpAgent {
 //
 func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error)) (*http.Response, []error) {
 	var (
-		req            *http.Request
-		err            error
-		resp           *http.Response
-		redirectFailed bool
-		client         *http.Client
+		req    *http.Request
+		err    error
+		resp   *http.Response
+		client *http.Client
 	)
 	// check whether there is an error. if yes, return all errors
 	if len(s.Errors) != 0 {
@@ -667,7 +666,6 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 	if s.MaxRedirects >= 0 {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			if len(via) > s.MaxRedirects {
-				redirectFailed = true
 				return errors.New("Error redirecting. MaxRedirects reached")
 			}
 
