@@ -255,7 +255,7 @@ func (s *HttpAgent) queryStruct(content interface{}) *HttpAgent {
 		s.Errors = append(s.Errors, err)
 	} else {
 		var val map[string]interface{}
-		if err := json.Unmarshal(marshalContent, &val); err != nil {
+		if err := json_unmarshal(marshalContent, &val); err != nil {
 			s.Errors = append(s.Errors, err)
 		} else {
 			newdata := changeMapToURLValues(val)
@@ -407,7 +407,7 @@ func (s *HttpAgent) sendArray(content interface{}) *HttpAgent {
 		s.Errors = append(s.Errors, err)
 	} else {
 		var val []interface{}
-		if err := json.Unmarshal(marshalContent, &val); err != nil {
+		if err := json_unmarshal(marshalContent, &val); err != nil {
 			s.Errors = append(s.Errors, err)
 		} else {
 			s.DataAll = val
@@ -423,7 +423,7 @@ func (s *HttpAgent) sendStruct(content interface{}) *HttpAgent {
 		s.Errors = append(s.Errors, err)
 	} else {
 		var val map[string]interface{}
-		if err := json.Unmarshal(marshalContent, &val); err != nil {
+		if err := json_unmarshal(marshalContent, &val); err != nil {
 			s.Errors = append(s.Errors, err)
 		} else {
 			for k, v := range val {
@@ -443,14 +443,15 @@ func (s *HttpAgent) SendString(content string) *HttpAgent {
 		//s.TargetType = s.ForceType
 		return s
 	}
+
 	var val map[string]interface{}
 	var valslice []interface{}
 	// check if it is json format
-	if err := json.Unmarshal([]byte(content), &val); err == nil {
+	if err := json_unmarshal([]byte(content), &val); err == nil {
 		for k, v := range val {
 			s.Data[k] = v
 		}
-	} else if err := json.Unmarshal([]byte(content), &valslice); err == nil {
+	} else if err := json_unmarshal([]byte(content), &valslice); err == nil {
 		s.DataAll = valslice
 	} else if formVal, err := url.ParseQuery(content); err == nil {
 		for k, _ := range formVal {
@@ -756,7 +757,7 @@ func (s *HttpAgent) ToJSON(v interface{}, status ...int) (int, error) {
 		return code, err
 	}
 
-	err = json.Unmarshal(body, &v)
+	err = json_unmarshal(body, &v)
 	return code, err
 }
 
@@ -768,4 +769,11 @@ func (s *HttpAgent) ToXML(v interface{}, status ...int) (int, error) {
 
 	err = xml.Unmarshal(body, &v)
 	return code, err
+}
+
+func json_unmarshal(body []byte, v interface{}) error {
+	d := json.NewDecoder(bytes.NewBuffer(body))
+	d.UseNumber()
+
+	return d.Decode(v)
 }
