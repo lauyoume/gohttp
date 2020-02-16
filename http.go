@@ -13,6 +13,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -42,6 +44,7 @@ type HttpAgent struct {
 	Data         map[string]interface{}
 	FormData     url.Values
 	QueryData    url.Values
+	FileData     []File
 	Cookies      []*http.Cookie
 	TlsConfig    *tls.Config
 	MaxTimeout   time.Duration
@@ -62,6 +65,7 @@ func New() *HttpAgent {
 		Header:       make(map[string]string),
 		FormData:     url.Values{},
 		QueryData:    url.Values{},
+		FileData:     make([]File, 0),
 		Cookies:      make([]*http.Cookie, 0),
 		MaxRedirects: -1,
 		Errors:       nil,
@@ -78,6 +82,7 @@ func NewSingle() *HttpAgent {
 		Header:       make(map[string]string),
 		FormData:     url.Values{},
 		QueryData:    url.Values{},
+		FileData:     make([]File, 0),
 		Cookies:      make([]*http.Cookie, 0),
 		MaxRedirects: -1,
 		SingleClient: true,
@@ -95,6 +100,7 @@ func (s *HttpAgent) ClearAgent() {
 	s.Data = make(map[string]interface{})
 	s.FormData = url.Values{}
 	s.QueryData = url.Values{}
+	s.FileData = make([]File, 0)
 	s.ForceType = ""
 	s.TargetType = "json"
 	s.Cookies = make([]*http.Cookie, 0)
@@ -479,6 +485,127 @@ func (s *HttpAgent) SendString(content string) *HttpAgent {
 	return s
 }
 
+type File struct {
+	Filename  string
+	Fieldname string
+	Data      []byte
+}
+
+// SendFile function works only with type "multipart". The function accepts one mandatory and up to two optional arguments. The mandatory (first) argument is the file.
+// The function accepts a path to a file as string:
+//
+//      gorequest.New().
+//        Post("http://example.com").
+//        Type("multipart").
+//        SendFile("./example_file.ext").
+//        End()
+//
+// File can also be a []byte slice of a already file read by eg. ioutil.ReadFile:
+//
+//      b, _ := ioutil.ReadFile("./example_file.ext")
+//      gorequest.New().
+//        Post("http://example.com").
+//        Type("multipart").
+//        SendFile(b).
+//        End()
+//
+// Furthermore file can also be a os.File:
+//
+//      f, _ := os.Open("./example_file.ext")
+//      gorequest.New().
+//        Post("http://example.com").
+//        Type("multipart").
+//        SendFile(f).
+//        End()
+//
+// The first optional argument (second argument overall) is the filename, which will be automatically determined when file is a string (path) or a os.File.
+// When file is a []byte slice, filename defaults to "filename". In all cases the automatically determined filename can be overwritten:
+//
+//      b, _ := ioutil.ReadFile("./example_file.ext")
+//      gorequest.New().
+//        Post("http://example.com").
+//        Type("multipart").
+//        SendFile(b, "my_custom_filename").
+//        End()
+//
+// The second optional argument (third argument overall) is the fieldname in the multipart/form-data request. It defaults to fileNUMBER (eg. file1), where number is ascending and starts counting at 1.
+// So if you send multiple files, the fieldnames will be file1, file2, ... unless it is overwritten. If fieldname is set to "file" it will be automatically set to fileNUMBER, where number is the greatest exsiting number+1.
+//
+//      b, _ := ioutil.ReadFile("./example_file.ext")
+//      gorequest.New().
+//        Post("http://example.com").
+//        Type("multipart").
+//        SendFile(b, "", "my_custom_fieldname"). // filename left blank, will become "example_file.ext"
+//        End()
+//
+func (s *HttpAgent) SendFile(file interface{}, args ...string) *HttpAgent {
+
+	filename := ""
+	fieldname := "file"
+
+	if len(args) >= 1 && len(args[0]) > 0 {
+		filename = strings.TrimSpace(args[0])
+	}
+	if len(args) >= 2 && len(args[1]) > 0 {
+		fieldname = strings.TrimSpace(args[1])
+	}
+
+	//if fieldname == "file" || fieldname == "" {
+	//	fieldname = "file" + strconv.Itoa(len(s.FileData)+1)
+	//}
+
+	switch v := file.(type) {
+	case string:
+		pathToFile, err := filepath.Abs(v)
+		if err != nil {
+			s.Errors = append(s.Errors, err)
+			return s
+		}
+		if filename == "" {
+			filename = filepath.Base(pathToFile)
+		}
+		data, err := ioutil.ReadFile(v)
+		if err != nil {
+			s.Errors = append(s.Errors, err)
+			return s
+		}
+		s.FileData = append(s.FileData, File{
+			Filename:  filename,
+			Fieldname: fieldname,
+			Data:      data,
+		})
+	case []byte:
+		if filename == "" {
+			filename = "filename"
+		}
+		f := File{
+			Filename:  filename,
+			Fieldname: fieldname,
+			Data:      append([]byte{}, v...),
+		}
+		s.FileData = append(s.FileData, f)
+	case *os.File:
+		osfile := v
+		if filename == "" {
+			filename = filepath.Base(osfile.Name())
+		}
+		data, err := ioutil.ReadFile(osfile.Name())
+		if err != nil {
+			s.Errors = append(s.Errors, err)
+			return s
+		}
+		s.FileData = append(s.FileData, File{
+			Filename:  filename,
+			Fieldname: fieldname,
+			Data:      data,
+		})
+	default:
+		s.Errors = append(s.Errors, errors.New("SendFile currently only supports either a string (path/to/file), a bytes (file content itself), or a os.File!"))
+	}
+
+	return s
+}
+
 func changeMapToURLValues(data map[string]interface{}) url.Values {
 	var newUrlValues = url.Values{}
 	for k, v := range data {
@@ -614,6 +741,13 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 						fw, _ := mw.CreateFormField(key)
 						fw.Write([]byte(value))
 					}
+				}
+			}
+
+			if len(s.FileData) != 0 {
+				for _, file := range s.FileData {
+					fw, _ := mw.CreateFormFile(file.Fieldname, file.Filename)
+					fw.Write(file.Data)
 				}
 			}
 

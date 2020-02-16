@@ -20,6 +20,7 @@ type Option struct {
 	Delay          time.Duration
 	MaxRedirects   int
 	MaxIdleConns   int
+	Http2          bool
 }
 
 type clientResource struct {
@@ -39,6 +40,7 @@ var defaultOption = &Option{
 	Address:        make([]string, 0),
 	MaxRedirects:   -1,
 	MaxIdleConns:   0,
+	Http2:          false,
 }
 
 var debug = false
@@ -80,6 +82,10 @@ func MakeTransport(ip string) *http.Transport {
 
 	if defaultOption.MaxIdleConns <= 0 {
 		transport.DisableKeepAlives = true
+	}
+
+	if defaultOption.Http2 {
+		transport.Dial = nil
 	}
 
 	return transport
@@ -149,6 +155,11 @@ func SetOption(option *Option) {
 	if option.MaxIdleConns > 0 {
 		defaultOption.MaxIdleConns = option.MaxIdleConns
 		defaultTransport.MaxIdleConnsPerHost = option.MaxIdleConns
+	}
+
+	if option.Http2 {
+		defaultOption.Http2 = option.Http2
+		defaultTransport.Dial = nil
 	}
 }
 
