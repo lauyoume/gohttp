@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -488,7 +487,8 @@ func (s *HttpAgent) SendString(content string) *HttpAgent {
 type File struct {
 	Filename  string
 	Fieldname string
-	Data      []byte
+	Reader    io.Reader
+	Len       int64
 }
 
 // SendFile function works only with type "multipart". The function accepts one mandatory and up to two optional arguments. The mandatory (first) argument is the file.
@@ -538,6 +538,7 @@ type File struct {
 //        SendFile(b, "", "my_custom_fieldname"). // filename left blank, will become "example_file.ext"
 //        End()
 //
+// 大文件建议传os.File进来
 func (s *HttpAgent) SendFile(file interface{}, args ...string) *HttpAgent {
 
 	filename := ""
@@ -572,7 +573,8 @@ func (s *HttpAgent) SendFile(file interface{}, args ...string) *HttpAgent {
 		s.FileData = append(s.FileData, File{
 			Filename:  filename,
 			Fieldname: fieldname,
-			Data:      data,
+			Reader:    bytes.NewReader(data),
+			Len:       int64(len(v)),
 		})
 	case []byte:
 		if filename == "" {
@@ -581,7 +583,8 @@ func (s *HttpAgent) SendFile(file interface{}, args ...string) *HttpAgent {
 		f := File{
 			Filename:  filename,
 			Fieldname: fieldname,
-			Data:      append([]byte{}, v...),
+			Reader:    bytes.NewReader(v),
+			Len:       int64(len(v)),
 		}
 		s.FileData = append(s.FileData, f)
 	case *os.File:
@@ -589,15 +592,12 @@ func (s *HttpAgent) SendFile(file interface{}, args ...string) *HttpAgent {
 		if filename == "" {
 			filename = filepath.Base(osfile.Name())
 		}
-		data, err := ioutil.ReadFile(osfile.Name())
-		if err != nil {
-			s.Errors = append(s.Errors, err)
-			return s
-		}
+		stat, _ := osfile.Stat()
 		s.FileData = append(s.FileData, File{
 			Filename:  filename,
 			Fieldname: fieldname,
-			Data:      data,
+			Len:       stat.Size(),
+			Reader:    osfile,
 		})
 	default:
 		s.Errors = append(s.Errors, errors.New("SendFile currently only supports either a string (path/to/file), a bytes (file content itself), or a os.File!"))
@@ -731,31 +731,24 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 			req, err = http.NewRequest(s.Method, s.Url, strings.NewReader(formdata))
 			req.Header.Set("Content-Type", "text/xml")
 		} else if s.TargetType == "multipart" {
-			var buf bytes.Buffer
-			mw := multipart.NewWriter(&buf)
+
+			mw := NewMultiPartStreamer()
 
 			if len(s.Data) != 0 {
 				formData := changeMapToURLValues(s.Data)
-				for key, values := range formData {
-					for _, value := range values {
-						fw, _ := mw.CreateFormField(key)
-						fw.Write([]byte(value))
-					}
-				}
+				mw.WriteFields(formData)
 			}
 
-			if len(s.FileData) != 0 {
+			if len(s.FileData) > 0 {
+				// 暂时只支持单个文件
 				for _, file := range s.FileData {
-					fw, _ := mw.CreateFormFile(file.Fieldname, file.Filename)
-					fw.Write(file.Data)
+					mw.WriteReader(file.Fieldname, file.Filename, file.Len, file.Reader)
 				}
 			}
 
-			// close before call to FormDataContentType ! otherwise its not valid multipart
-			mw.Close()
-
-			req, err = http.NewRequest(s.Method, s.Url, &buf)
-			req.Header.Set("Content-Type", mw.FormDataContentType())
+			req, err = http.NewRequest(s.Method, s.Url, nil)
+			mw.SetupRequest(req)
+			// req.Header.Set("Content-Type", mw.FormDataContentType())
 		}
 	case GET, HEAD, DELETE:
 		req, err = http.NewRequest(s.Method, s.Url, nil)
