@@ -10,8 +10,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-
-	"github.com/astaxie/beego"
 )
 
 type MultipartStreamer struct {
@@ -83,7 +81,6 @@ func (m *MultipartStreamer) SetupRequest(req *http.Request) {
 	req.Body = m.GetReader()
 	req.Header.Set("Content-Type", m.ContentType)
 	req.ContentLength = m.Len()
-	beego.Info(string(m.bodyBuffer.Bytes()))
 }
 
 func (m *MultipartStreamer) Boundary() string {
