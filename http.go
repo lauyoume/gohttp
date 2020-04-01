@@ -449,6 +449,11 @@ func (s *HttpAgent) SendBytes(data []byte) *HttpAgent {
 	return s.SendString(string(data))
 }
 
+func (s *HttpAgent) SendParam(key string, value interface{}) *HttpAgent {
+	s.Data[key] = value
+	return s
+}
+
 // SendString returns HttpAgent's itself for any next chain and takes content string as a parameter.
 // Its duty is to transform String into s.Data (map[string]interface{}) which later changes into appropriate format such as json, form, text, etc. in the End func.
 // Send implicitly uses SendString and you should use Send instead of this.
