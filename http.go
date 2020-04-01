@@ -589,7 +589,7 @@ func (s *HttpAgent) SendFile(file interface{}, args ...string) *HttpAgent {
 			Filename:  filename,
 			Fieldname: fieldname,
 			Reader:    bytes.NewReader(data),
-			Len:       int64(len(v)),
+			Len:       int64(len(data)),
 		})
 	case []byte:
 		if filename == "" {
