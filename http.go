@@ -182,6 +182,7 @@ var Types = map[string]string{
 	"form-data":  "application/x-www-form-urlencoded",
 	"text":       "text/plain",
 	"multipart":  "multipart/form-data",
+	"stream":     "application/octet-stream",
 }
 
 // Type is a convenience function to specify the data type to send.
@@ -437,6 +438,15 @@ func (s *HttpAgent) sendStruct(content interface{}) *HttpAgent {
 		}
 	}
 	return s
+}
+
+func (s *HttpAgent) SendBytes(data []byte) *HttpAgent {
+	if s.ForceType == "stream" {
+		s.Data["stream"] = data
+		return s
+	}
+
+	return s.SendString(string(data))
 }
 
 // SendString returns HttpAgent's itself for any next chain and takes content string as a parameter.
@@ -702,7 +712,7 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 
 	// check if there is forced type
 	switch s.ForceType {
-	case "json", "form", "text", "xml", "multipart":
+	case "json", "form", "text", "xml", "multipart", "stream":
 		s.TargetType = s.ForceType
 	}
 
@@ -730,6 +740,10 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 			formdata := s.Data["text"].(string)
 			req, err = http.NewRequest(s.Method, s.Url, strings.NewReader(formdata))
 			req.Header.Set("Content-Type", "text/xml")
+		} else if s.TargetType == "stream" {
+			body := s.Data["stream"].([]byte)
+			req, err = http.NewRequest(s.Method, s.Url, bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/octet-stream")
 		} else if s.TargetType == "multipart" {
 
 			mw := NewMultiPartStreamer()
