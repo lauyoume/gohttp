@@ -47,7 +47,8 @@ var debug = false
 var defaultDialer = &net.Dialer{Timeout: defaultOption.ConnectTimeout}
 var defaultTransport = MakeTransport("0.0.0.0")
 var defaultCookiejar = MakeCookiejar()
-var proxyTransport *http.Transport
+
+// var proxyTransport *http.Transport
 
 var hostDelay = make(map[string]time.Duration)
 var hostDelayLock sync.RWMutex

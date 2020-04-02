@@ -45,15 +45,11 @@ func (s *IpRollClient) GetHttpClient(urlStr string, proxy string, usejar bool) (
 		if err != nil {
 			return nil, err
 		}
-		if proxyTransport == nil {
-			proxyTransport = &http.Transport{
-				Dial:                defaultDialer.Dial,
-				Proxy:               http.ProxyURL(proxyuri),
-				MaxIdleConnsPerHost: defaultOption.MaxIdleConns,
-				TLSHandshakeTimeout: defaultOption.TLSTimeout,
-			}
-		} else {
-			proxyTransport.Proxy = http.ProxyURL(proxyuri)
+		proxyTransport := &http.Transport{
+			Dial:                defaultDialer.Dial,
+			Proxy:               http.ProxyURL(proxyuri),
+			MaxIdleConnsPerHost: defaultOption.MaxIdleConns,
+			TLSHandshakeTimeout: defaultOption.TLSTimeout,
 		}
 		if IsDebug() {
 			log.Printf("[gohttp] url = %s, use proxy = %s\n", urlStr, proxy)
