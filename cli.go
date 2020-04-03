@@ -50,6 +50,7 @@ func (s *IpRollClient) GetHttpClient(urlStr string, proxy string, usejar bool) (
 			Proxy:               http.ProxyURL(proxyuri),
 			MaxIdleConnsPerHost: defaultOption.MaxIdleConns,
 			TLSHandshakeTimeout: defaultOption.TLSTimeout,
+			DisableKeepAlives:   true,
 		}
 		if IsDebug() {
 			log.Printf("[gohttp] url = %s, use proxy = %s\n", urlStr, proxy)
