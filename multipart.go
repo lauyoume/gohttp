@@ -94,6 +94,10 @@ func (m *MultipartStreamer) Len() int64 {
 
 // GetReader gets an io.ReadCloser for passing to an http.Request.
 func (m *MultipartStreamer) GetReader() io.ReadCloser {
+	if m.reader == nil {
+		reader := io.MultiReader(m.bodyBuffer, m.closeBuffer)
+		return ioutil.NopCloser(reader)
+	}
 	reader := io.MultiReader(m.bodyBuffer, m.reader, m.closeBuffer)
 	return ioutil.NopCloser(reader)
 }
