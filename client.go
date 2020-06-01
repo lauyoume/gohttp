@@ -12,15 +12,16 @@ import (
 )
 
 type Option struct {
-	Address        []string
-	ConnectTimeout time.Duration
-	TLSTimeout     time.Duration
-	Timeout        time.Duration
-	Agent          string
-	Delay          time.Duration
-	MaxRedirects   int
-	MaxIdleConns   int
-	Http2          bool
+	Address         []string
+	ConnectTimeout  time.Duration
+	TLSTimeout      time.Duration
+	Timeout         time.Duration
+	Agent           string
+	Delay           time.Duration
+	MaxRedirects    int
+	MaxIdleConns    int
+	MaxConnsPerHost int
+	Http2           bool
 }
 
 type clientResource struct {
@@ -35,7 +36,7 @@ type useInfo struct {
 
 var defaultOption = &Option{
 	ConnectTimeout: 30000 * time.Millisecond,
-	TLSTimeout:     15 * time.Second,
+	TLSTimeout:     30 * time.Second,
 	Agent:          "gohttp v1.0",
 	Address:        make([]string, 0),
 	MaxRedirects:   -1,
@@ -83,6 +84,10 @@ func MakeTransport(ip string) *http.Transport {
 
 	if defaultOption.MaxIdleConns <= 0 {
 		transport.DisableKeepAlives = true
+	}
+
+	if defaultOption.MaxConnsPerHost > 0 {
+		transport.MaxConnsPerHost = defaultOption.MaxConnsPerHost
 	}
 
 	if defaultOption.Http2 {
@@ -156,6 +161,11 @@ func SetOption(option *Option) {
 	if option.MaxIdleConns > 0 {
 		defaultOption.MaxIdleConns = option.MaxIdleConns
 		defaultTransport.MaxIdleConnsPerHost = option.MaxIdleConns
+	}
+
+	if option.MaxConnsPerHost > 0 {
+		defaultOption.MaxConnsPerHost = option.MaxIdleConns
+		defaultTransport.MaxConnsPerHost = option.MaxConnsPerHost
 	}
 
 	if option.Http2 {
