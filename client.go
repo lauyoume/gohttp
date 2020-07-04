@@ -66,7 +66,7 @@ func MakeCookiejar() http.CookieJar {
 }
 
 func MakeClient(transport http.RoundTripper, jar http.CookieJar) *http.Client {
-	return &http.Client{Jar: jar, Transport: transport, Timeout: 60 * time.Second}
+	return &http.Client{Jar: jar, Transport: transport}
 }
 
 func MakeTransport(ip string) *http.Transport {
