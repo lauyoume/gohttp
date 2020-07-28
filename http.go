@@ -500,10 +500,11 @@ func (s *HttpAgent) SendString(content string) *HttpAgent {
 }
 
 type File struct {
-	Filename  string
-	Fieldname string
-	Reader    io.Reader
-	Len       int64
+	Filename    string
+	Fieldname   string
+	Reader      io.Reader
+	Len         int64
+	ContentType string
 }
 
 // SendFile function works only with type "multipart". The function accepts one mandatory and up to two optional arguments. The mandatory (first) argument is the file.
@@ -558,12 +559,16 @@ func (s *HttpAgent) SendFile(file interface{}, args ...string) *HttpAgent {
 
 	filename := ""
 	fieldname := "file"
+	ctype := ""
 
 	if len(args) >= 1 && len(args[0]) > 0 {
 		filename = strings.TrimSpace(args[0])
 	}
 	if len(args) >= 2 && len(args[1]) > 0 {
 		fieldname = strings.TrimSpace(args[1])
+	}
+	if len(args) >= 3 && len(args[2]) > 0 {
+		ctype = strings.TrimSpace(args[2])
 	}
 
 	//if fieldname == "file" || fieldname == "" {
@@ -586,20 +591,22 @@ func (s *HttpAgent) SendFile(file interface{}, args ...string) *HttpAgent {
 			return s
 		}
 		s.FileData = append(s.FileData, File{
-			Filename:  filename,
-			Fieldname: fieldname,
-			Reader:    bytes.NewReader(data),
-			Len:       int64(len(data)),
+			Filename:    filename,
+			Fieldname:   fieldname,
+			Reader:      bytes.NewReader(data),
+			Len:         int64(len(data)),
+			ContentType: ctype,
 		})
 	case []byte:
 		if filename == "" {
 			filename = "filename"
 		}
 		f := File{
-			Filename:  filename,
-			Fieldname: fieldname,
-			Reader:    bytes.NewReader(v),
-			Len:       int64(len(v)),
+			Filename:    filename,
+			Fieldname:   fieldname,
+			Reader:      bytes.NewReader(v),
+			Len:         int64(len(v)),
+			ContentType: ctype,
 		}
 		s.FileData = append(s.FileData, f)
 	case *os.File:
@@ -609,10 +616,11 @@ func (s *HttpAgent) SendFile(file interface{}, args ...string) *HttpAgent {
 		}
 		stat, _ := osfile.Stat()
 		s.FileData = append(s.FileData, File{
-			Filename:  filename,
-			Fieldname: fieldname,
-			Len:       stat.Size(),
-			Reader:    osfile,
+			Filename:    filename,
+			Fieldname:   fieldname,
+			Len:         stat.Size(),
+			Reader:      osfile,
+			ContentType: ctype,
 		})
 	default:
 		s.Errors = append(s.Errors, errors.New("SendFile currently only supports either a string (path/to/file), a bytes (file content itself), or a os.File!"))
@@ -761,7 +769,8 @@ func (s *HttpAgent) End(callback ...func(response *http.Response, errs []error))
 			if len(s.FileData) > 0 {
 				// 暂时只支持单个文件
 				for _, file := range s.FileData {
-					mw.WriteReader(file.Fieldname, file.Filename, file.Len, file.Reader)
+					mw.WriteReader(file)
+					// mw.WriteReader(file.Fieldname, file.Filename, file.Len, file.Reader)
 				}
 			}
 

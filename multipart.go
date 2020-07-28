@@ -7,9 +7,11 @@ import (
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type MultipartStreamer struct {
@@ -53,11 +55,21 @@ func (m *MultipartStreamer) WriteFields(fields url.Values) error {
 
 // WriteReader adds an io.Reader to get the content of a file.  The reader is
 // not accessed until the multipart.Reader is copied to some output writer.
-func (m *MultipartStreamer) WriteReader(key, filename string, size int64, reader io.Reader) (err error) {
-	m.reader = reader
-	m.contentLength = size
+// func (m *MultipartStreamer) WriteReader(key, filename string, size int64, reader io.Reader, ctype string) (err error) {
+func (m *MultipartStreamer) WriteReader(f File) (err error) {
+	m.reader = f.Reader
+	m.contentLength = f.Len
 
-	_, err = m.bodyWriter.CreateFormFile(key, filename)
+	if f.ContentType == "" {
+		_, err = m.bodyWriter.CreateFormFile(f.Fieldname, f.Filename)
+	} else {
+		h := make(textproto.MIMEHeader)
+		h.Set("Content-Disposition",
+			fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
+				escapeQuotes(f.Fieldname), escapeQuotes(f.Filename)))
+		h.Set("Content-Type", f.ContentType)
+		m.bodyWriter.CreatePart(h)
+	}
 	return
 }
 
@@ -73,7 +85,13 @@ func (m *MultipartStreamer) WriteFile(key, filename string) error {
 		return err
 	}
 
-	return m.WriteReader(key, filepath.Base(filename), stat.Size(), fh)
+	f := File{
+		Fieldname: key,
+		Filename:  filepath.Base(filename),
+		Reader:    fh,
+		Len:       stat.Size(),
+	}
+	return m.WriteReader(f)
 }
 
 // SetupRequest sets up the http.Request body, and some crucial HTTP headers.
@@ -100,4 +118,10 @@ func (m *MultipartStreamer) GetReader() io.ReadCloser {
 	}
 	reader := io.MultiReader(m.bodyBuffer, m.reader, m.closeBuffer)
 	return ioutil.NopCloser(reader)
+}
+
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+
+func escapeQuotes(s string) string {
+	return quoteEscaper.Replace(s)
 }
